@@ -1,0 +1,5 @@
+local
+vendor
+database
+!database/.gitkeep
+!database/init.sql
