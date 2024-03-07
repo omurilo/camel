@@ -25,25 +25,16 @@ for (1..5) {
   $dbh->do("PRAGMA mmap_size = 30000000000;");
   $dbh->do("PRAGMA page_size = 32768;");
   $dbh->do('PRAGMA synchronous = OFF;');
-  # $dbh->do('PRAGMA cache_size = 10000;');
-  # $dbh->do('PRAGMA busy_timeout = 15000;');
-  # $dbh->do('PRAGMA auto_vacuum = FULL;');
-  # $dbh->do('PRAGMA automatic_indexing = TRUE;');
-  # $dbh->do('PRAGMA count_changes = FALSE;');
-  # $dbh->do('PRAGMA encoding = "UTF-8";');
-  # $dbh->do('PRAGMA ignore_check_constraints = TRUE;');
-  # $dbh->do('PRAGMA incremental_vacuum = 0;');
-  # $dbh->do('PRAGMA legacy_file_format = FALSE;');
-  # $dbh->do('PRAGMA optimize = On;');
 
-  $dbh->do(qq(DROP TABLE IF EXISTS accounts));
-  $dbh->do(qq(DROP TABLE IF EXISTS transactions));
+  # $dbh->do(qq(DROP TABLE IF EXISTS accounts));
+  # $dbh->do(qq(DROP TABLE IF EXISTS transactions));
 
   my $create_accs_table = qq(CREATE TABLE IF NOT EXISTS accounts(
     id INTEGER PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
     limit_amount INTEGER NOT NULL,
-    balance INTEGER NOT NULL DEFAULT 0
+    balance INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(id)
   ));
 
   my $crate_transactions_table = qq(CREATE TABLE IF NOT EXISTS transactions(
@@ -58,13 +49,14 @@ for (1..5) {
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
   ));
 
-  my $create_acc = qq(INSERT INTO accounts (name, limit_amount)
+  my $create_acc = qq(INSERT OR IGNORE INTO accounts (id, name, limit_amount)
     VALUES
-      ('o barato sai caro', 1000 * 100),
-      ('zan corp ltda', 800 * 100),
-      ('les cruders', 10000 * 100),
-      ('padaria joia de cocaia', 100000 * 100),
-      ('kid mais', 5000 * 100));
+      (1, 'o barato sai caro', 1000 * 100),
+      (2, 'zan corp ltda', 800 * 100),
+      (3, 'les cruders', 10000 * 100),
+      (4, 'padaria joia de cocaia', 100000 * 100),
+      (5, 'kid mais', 5000 * 100));
+
   my $validate_balance_before_insert_transaction = qq(
     CREATE TRIGGER if not exists validate_balance_before_insert_transaction
     BEFORE INSERT ON transactions
@@ -92,7 +84,7 @@ sub statement {
   my ($app, $context) = @_;
 
   my $id = $context->params->{'id'};
- 
+
   unless ($id >= 1 && $id <= 5) {
     $context->status(404)->text('Client not found');
     return;
@@ -100,11 +92,26 @@ sub statement {
 
   my $dbh = $dbhs{$id};
 
-  my $stmt = qq(SELECT limit_amount as limite, balance as total, datetime('now', 'localtime') as data_extrato FROM accounts WHERE id = $id);
-  my $t_stmt = qq(SELECT amount as valor, description as descricao, transaction_type as tipo, datetime('now', 'localtime') as realizada_em FROM transactions WHERE account_id = $id ORDER BY id DESC LIMIT 10);
+  my $stmt = qq(SELECT
+      limit_amount as limite,
+      balance as total,
+      datetime('now', 'localtime') as data_extrato
+      FROM accounts
+      WHERE id = $id
+  );
+  my $t_stmt = qq(SELECT
+      amount as valor,
+      description as descricao,
+      transaction_type as tipo,
+      datetime('now', 'localtime') as realizada_em
+      FROM transactions
+      WHERE account_id = $id
+      ORDER BY id DESC
+      LIMIT 10
+  );
   my $sth = $dbh->prepare($stmt);
   my $t_sth = $dbh->prepare($t_stmt);
- 
+
   eval {
     $dbh->do('begin exclusive');
     my $rv = $sth->execute() or die $DBI::errstr;
@@ -114,7 +121,7 @@ sub statement {
 
     my $ten_transactions = $t_sth->fetchall_arrayref({});
     $dbh->do('commit');
-   
+
     my %resp = (
       saldo => $balance,
       ultimas_transacoes => $ten_transactions,
@@ -132,7 +139,7 @@ sub transaction {
   my ($app, $context) = @_;
 
   my $id = $context->params->{'id'};
-  
+
   unless ($id >= 1 && $id <= 5) {
     $context->status(404);
     return;
@@ -162,7 +169,7 @@ sub transaction {
       $sth->execute($id);
       $balance = $sth->fetchrow_hashref();
     };
-    
+
     if ($@) {
       $context->status(422);
       return;
@@ -176,9 +183,9 @@ sub transaction {
   }
 }
 
-sub is_int { 
-    my $str = $_[0]; 
-    $str =~ s/^\s+|\s+$//g;          
+sub is_int {
+    my $str = $_[0];
+    $str =~ s/^\s+|\s+$//g;
 
     if ($str =~ /^(\-|\+)?\d+?$/) {
         return 1;
